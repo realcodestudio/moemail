@@ -19,6 +19,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { ROLES } from "@/lib/permissions"
+import { useUserRole } from "@/hooks/use-user-role"
+import { useConfig } from "@/hooks/use-config"
 
 interface Email {
   id: string
@@ -40,6 +43,8 @@ interface EmailResponse {
 
 export function EmailList({ onEmailSelect, selectedEmailId }: EmailListProps) {
   const { data: session } = useSession()
+  const { config } = useConfig()
+  const { role } = useUserRole()
   const [emails, setEmails] = useState<Email[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -109,7 +114,6 @@ export function EmailList({ onEmailSelect, selectedEmailId }: EmailListProps) {
 
   useEffect(() => {
     if (session) fetchEmails()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session])
 
   const handleDelete = async (email: Email) => {
@@ -167,7 +171,11 @@ export function EmailList({ onEmailSelect, selectedEmailId }: EmailListProps) {
               <RefreshCw className="h-4 w-4" />
             </Button>
             <span className="text-xs text-gray-500">
-              {total}/{EMAIL_CONFIG.MAX_ACTIVE_EMAILS} 个邮箱
+              {role === ROLES.EMPEROR ? (
+                `${total}/∞ 个邮箱`
+              ) : (
+                `${total}/${config?.maxEmails || EMAIL_CONFIG.MAX_ACTIVE_EMAILS} 个邮箱`
+              )}
             </span>
           </div>
           <CreateDialog onEmailCreated={handleRefresh} />

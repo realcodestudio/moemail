@@ -13,12 +13,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { EMAIL_CONFIG } from "@/config"
 
-export function ConfigPanel() {
+export function WebsiteConfigPanel() {
   const [defaultRole, setDefaultRole] = useState<string>("")
   const [emailDomains, setEmailDomains] = useState<string>("")
+  const [adminContact, setAdminContact] = useState<string>("")
+  const [maxEmails, setMaxEmails] = useState<string>(EMAIL_CONFIG.MAX_ACTIVE_EMAILS.toString())
   const [loading, setLoading] = useState(false)
   const { toast } = useToast()
+
 
   useEffect(() => {
     fetchConfig()
@@ -29,10 +33,14 @@ export function ConfigPanel() {
     if (res.ok) {
       const data = await res.json() as { 
         defaultRole: Exclude<Role, typeof ROLES.EMPEROR>,
-        emailDomains: string
+        emailDomains: string,
+        adminContact: string,
+        maxEmails: string
       }
       setDefaultRole(data.defaultRole)
       setEmailDomains(data.emailDomains)
+      setAdminContact(data.adminContact)
+      setMaxEmails(data.maxEmails || EMAIL_CONFIG.MAX_ACTIVE_EMAILS.toString())
     }
   }
 
@@ -42,7 +50,12 @@ export function ConfigPanel() {
       const res = await fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ defaultRole, emailDomains }),
+        body: JSON.stringify({ 
+          defaultRole, 
+          emailDomains,
+          adminContact,
+          maxEmails: maxEmails || EMAIL_CONFIG.MAX_ACTIVE_EMAILS.toString()
+        }),
       })
 
       if (!res.ok) throw new Error("保存失败")
@@ -77,6 +90,7 @@ export function ConfigPanel() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value={ROLES.DUKE}>公爵</SelectItem>
               <SelectItem value={ROLES.KNIGHT}>骑士</SelectItem>
               <SelectItem value={ROLES.CIVILIAN}>平民</SelectItem>
             </SelectContent>
@@ -90,6 +104,31 @@ export function ConfigPanel() {
               value={emailDomains}
               onChange={(e) => setEmailDomains(e.target.value)}
               placeholder="多个域名用逗号分隔，如: moemail.app,bitibiti.com"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <span className="text-sm">管理员联系方式:</span>
+          <div className="flex-1">
+            <Input 
+              value={adminContact}
+              onChange={(e) => setAdminContact(e.target.value)}
+              placeholder="如: 微信号、邮箱等"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <span className="text-sm">最大邮箱数量:</span>
+          <div className="flex-1">
+            <Input 
+              type="number"
+              min="1"
+              max="100"
+              value={maxEmails}
+              onChange={(e) => setMaxEmails(e.target.value)}
+              placeholder={`默认为 ${EMAIL_CONFIG.MAX_ACTIVE_EMAILS}`}
             />
           </div>
         </div>

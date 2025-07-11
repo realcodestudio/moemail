@@ -12,16 +12,17 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { EXPIRY_OPTIONS } from "@/types/email"
 import { useCopy } from "@/hooks/use-copy"
+import { useConfig } from "@/hooks/use-config"
 
 interface CreateDialogProps {
   onEmailCreated: () => void
 }
 
 export function CreateDialog({ onEmailCreated }: CreateDialogProps) {
+  const { config } = useConfig()  
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [emailName, setEmailName] = useState("")
-  const [domains, setDomains] = useState<string[]>([])
   const [currentDomain, setCurrentDomain] = useState("")
   const [expiryTime, setExpiryTime] = useState(EXPIRY_OPTIONS[1].value.toString())
   const { toast } = useToast()
@@ -83,16 +84,11 @@ export function CreateDialog({ onEmailCreated }: CreateDialogProps) {
     }
   }
 
-  const fetchDomains = async () => {
-    const response = await fetch("/api/emails/domains");
-    const data = (await response.json()) as { domains: string[] };
-    setDomains(data.domains || []);
-    setCurrentDomain(data.domains[0] || "");
-  };
-
   useEffect(() => {
-    fetchDomains()
-  }, [])
+    if ((config?.emailDomainsArray?.length ?? 0) > 0) {
+      setCurrentDomain(config?.emailDomainsArray[0] ?? "")
+    }
+  }, [config])
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -114,13 +110,13 @@ export function CreateDialog({ onEmailCreated }: CreateDialogProps) {
               placeholder="输入邮箱名"
               className="flex-1"
             />
-            {domains.length > 1 && (
+            {(config?.emailDomainsArray?.length ?? 0) > 1 && (
               <Select value={currentDomain} onValueChange={setCurrentDomain}>
                 <SelectTrigger className="w-[180px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {domains.map(d => (
+                  {config?.emailDomainsArray?.map(d => (
                     <SelectItem key={d} value={d}>@{d}</SelectItem>
                   ))}
                 </SelectContent>

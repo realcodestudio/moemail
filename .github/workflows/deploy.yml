@@ -5,22 +5,6 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      run_migrations:
-        description: 'Run database migrations'
-        type: boolean
-        required: true
-        default: false
-      deploy_email_worker:
-        description: 'Deploy email Worker'
-        type: boolean
-        required: true
-        default: false
-      deploy_cleanup_worker:
-        description: 'Deploy cleanup Worker'
-        type: boolean
-        required: true
-        default: false
 
 jobs:
   deploy:
@@ -51,112 +35,23 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      # Check if database migrations have changes
-      - name: Check migrations changes
-        id: check_migrations
-        if: github.event_name == 'push'
+      - name: Run deploy script
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT_NAME: ${{ secrets.PROJECT_NAME }}
+          DATABASE_NAME: ${{ secrets.DATABASE_NAME }}
+          DATABASE_ID: ${{ secrets.DATABASE_ID }}
+          KV_NAMESPACE_NAME: ${{ secrets.KV_NAMESPACE_NAME }}
+          KV_NAMESPACE_ID: ${{ secrets.KV_NAMESPACE_ID }}
+          CUSTOM_DOMAIN: ${{ secrets.CUSTOM_DOMAIN }}
+          AUTH_GITHUB_ID: ${{ secrets.AUTH_GITHUB_ID }}
+          AUTH_GITHUB_SECRET: ${{ secrets.AUTH_GITHUB_SECRET }}
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+        run: pnpm dlx tsx scripts/deploy/index.ts
+
+      # Clean up
+      - name: Post deployment cleanup
         run: |
-          if [ -z "${{ steps.previoustag.outputs.tag }}" ]; then
-            echo "migrations_changed=true" >> $GITHUB_OUTPUT
-          else
-            if git diff ${{ steps.previoustag.outputs.tag }}..HEAD --name-only | grep -q "^drizzle/"; then
-              echo "migrations_changed=true" >> $GITHUB_OUTPUT
-            else
-              echo "migrations_changed=false" >> $GITHUB_OUTPUT
-            fi
-          fi
-
-      # Process configuration files
-      - name: Process configuration files
-        run: |
-          # Process wrangler.example.toml
-          if [ -f wrangler.example.toml ]; then
-            cp wrangler.example.toml wrangler.toml
-            sed -i "s/database_name = \".*\"/database_name = \"${{ secrets.DATABASE_NAME }}\"/" wrangler.toml
-            sed -i "s/database_id = \".*\"/database_id = \"${{ secrets.DATABASE_ID }}\"/" wrangler.toml
-            sed -i "s/id = \"\"/id = \"${{ secrets.KV_NAMESPACE_ID }}\"/" wrangler.toml
-          fi
-          
-          # Process wrangler.email.example.toml
-          if [ -f wrangler.email.example.toml ]; then
-            cp wrangler.email.example.toml wrangler.email.toml
-            sed -i "s/database_name = \".*\"/database_name = \"${{ secrets.DATABASE_NAME }}\"/" wrangler.email.toml
-            sed -i "s/database_id = \".*\"/database_id = \"${{ secrets.DATABASE_ID }}\"/" wrangler.email.toml
-          fi
-          
-          # Process wrangler.cleanup.example.toml
-          if [ -f wrangler.cleanup.example.toml ]; then
-            cp wrangler.cleanup.example.toml wrangler.cleanup.toml
-            sed -i "s/database_name = \".*\"/database_name = \"${{ secrets.DATABASE_NAME }}\"/" wrangler.cleanup.toml
-            sed -i "s/database_id = \".*\"/database_id = \"${{ secrets.DATABASE_ID }}\"/" wrangler.cleanup.toml
-          fi
-
-      # Run database migrations if needed
-      - name: Run database migrations
-        if: |
-          github.event_name == 'push' && steps.check_migrations.outputs.migrations_changed == 'true' ||
-          github.event_name == 'workflow_dispatch' && github.event.inputs.run_migrations == 'true'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm db:migrate-remote
-
-      # Check if workers have changes
-      - name: Check workers changes
-        id: check_changes
-        if: github.event_name == 'push'
-        run: |
-          if [ -z "${{ steps.previoustag.outputs.tag }}" ]; then
-            # Check email worker and its dependencies
-            if git ls-files | grep -q -E "workers/email-receiver.ts|app/lib/schema.ts|app/lib/webhook.ts|app/config/webhook.ts"; then
-              echo "email_worker_changed=true" >> $GITHUB_OUTPUT
-            else
-              echo "email_worker_changed=false" >> $GITHUB_OUTPUT
-            fi
-            # Check cleanup worker
-            if git ls-files | grep -q "workers/cleanup.ts"; then
-              echo "cleanup_worker_changed=true" >> $GITHUB_OUTPUT
-            else
-              echo "cleanup_worker_changed=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            # Check email worker and its dependencies changes
-            if git diff ${{ steps.previoustag.outputs.tag }}..HEAD --name-only | grep -q -E "workers/email-receiver.ts|app/lib/schema.ts|app/lib/webhook.ts|app/config/webhook.ts"; then
-              echo "email_worker_changed=true" >> $GITHUB_OUTPUT
-            else
-              echo "email_worker_changed=false" >> $GITHUB_OUTPUT
-            fi
-            # Check cleanup worker changes
-            if git diff ${{ steps.previoustag.outputs.tag }}..HEAD --name-only | grep -q "workers/cleanup.ts"; then
-              echo "cleanup_worker_changed=true" >> $GITHUB_OUTPUT
-            else
-              echo "cleanup_worker_changed=false" >> $GITHUB_OUTPUT
-            fi
-          fi
-
-      # Deploy Pages application
-      - name: Deploy Pages
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm run deploy:pages
-
-      # Deploy email worker if changed or manually triggered
-      - name: Deploy Email Worker
-        if: |
-          github.event_name == 'push' && steps.check_changes.outputs.email_worker_changed == 'true' ||
-          github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_email_worker == 'true'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm run deploy:email
-
-      # Deploy cleanup worker if changed or manually triggered
-      - name: Deploy Cleanup Worker
-        if: |
-          github.event_name == 'push' && steps.check_changes.outputs.cleanup_worker_changed == 'true' ||
-          github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_cleanup_worker == 'true'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm run deploy:cleanup
+          rm -f .env*.*
+          rm -f wrangler*.json

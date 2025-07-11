@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
 import { createDb } from "@/lib/db"
 import { emails, messages } from "@/lib/schema"
-import { eq, and, lt, or, sql } from "drizzle-orm"
+import { eq, and, lt, or, sql, ne, isNull } from "drizzle-orm"
 import { encodeCursor, decodeCursor } from "@/lib/cursor"
+import { getUserId } from "@/lib/apiKey"
+import { checkBasicSendPermission } from "@/lib/send-permissions"
 
 export const runtime = "edge"
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth()
+  const userId = await getUserId()
 
   try {
     const db = createDb()
@@ -19,7 +20,7 @@ export async function DELETE(
     const email = await db.query.emails.findFirst({
       where: and(
         eq(emails.id, id),
-        eq(emails.userId, session!.user!.id!)
+        eq(emails.userId, userId!)
       )
     })
 
@@ -53,12 +54,46 @@ export async function GET(
 ) {
   const { searchParams } = new URL(request.url)
   const cursorStr = searchParams.get('cursor')
+  const messageType = searchParams.get('type')
 
   try {
     const db = createDb()
     const { id } = await params
 
-    const baseConditions = eq(messages.emailId, id)
+    const userId = await getUserId()
+    if (messageType === 'sent') {
+      const permissionResult = await checkBasicSendPermission(userId!)
+      if (!permissionResult.canSend) {
+        return NextResponse.json(
+          { error: permissionResult.error || "您没有查看发送邮件的权限" },
+          { status: 403 }
+        )
+      }
+    }
+
+    const email = await db.query.emails.findFirst({
+      where: and(
+        eq(emails.id, id),
+        eq(emails.userId, userId!)
+      )
+    })
+
+    if (!email) {
+      return NextResponse.json(
+        { error: "无权限查看" },
+        { status: 403 }
+      )
+    }
+
+    const baseConditions = and(
+      eq(messages.emailId, id),
+      messageType === 'sent' 
+        ? eq(messages.type, "sent") 
+        : or(
+            ne(messages.type, "sent"),
+            isNull(messages.type)
+          )
+    )
 
     const totalResult = await db.select({ count: sql<number>`count(*)` })
       .from(messages)
@@ -69,22 +104,24 @@ export async function GET(
 
     if (cursorStr) {
       const { timestamp, id } = decodeCursor(cursorStr)
+      const orderByTime = messageType === 'sent' ? messages.sentAt : messages.receivedAt
       conditions.push(
-        // @ts-expect-error "ignore the error"
         or(
-          lt(messages.receivedAt, new Date(timestamp)),
+          lt(orderByTime, new Date(timestamp)),
           and(
-            eq(messages.receivedAt, new Date(timestamp)),
+            eq(orderByTime, new Date(timestamp)),
             lt(messages.id, id)
           )
         )
       )
     }
 
+    const orderByTime = messageType === 'sent' ? messages.sentAt : messages.receivedAt
+    
     const results = await db.query.messages.findMany({
       where: and(...conditions),
       orderBy: (messages, { desc }) => [
-        desc(messages.receivedAt),
+        desc(orderByTime),
         desc(messages.id)
       ],
       limit: PAGE_SIZE + 1
@@ -93,7 +130,9 @@ export async function GET(
     const hasMore = results.length > PAGE_SIZE
     const nextCursor = hasMore 
       ? encodeCursor(
-          results[PAGE_SIZE - 1].receivedAt.getTime(),
+          messageType === 'sent' 
+            ? results[PAGE_SIZE - 1].sentAt!.getTime()
+            : results[PAGE_SIZE - 1].receivedAt.getTime(),
           results[PAGE_SIZE - 1].id
         )
       : null
@@ -102,9 +141,13 @@ export async function GET(
     return NextResponse.json({ 
       messages: messageList.map(msg => ({
         id: msg.id,
-        from_address: msg.fromAddress,
+        from_address: msg?.fromAddress,
+        to_address: msg?.toAddress,
         subject: msg.subject,
-        received_at: msg.receivedAt.getTime()
+        content: msg.content,
+        html: msg.html,
+        sent_at: msg.sentAt?.getTime(),
+        received_at: msg.receivedAt?.getTime()
       })),
       nextCursor,
       total: totalCount

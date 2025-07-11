@@ -1,4 +1,3 @@
-import { parse } from '@iarna/toml'
 import { readFileSync } from 'fs'
 import { exec } from 'child_process'
 import { promisify } from 'util'
@@ -27,23 +26,23 @@ async function migrate() {
       process.exit(1)
     }
 
-    // Read wrangler.toml
-    const wranglerPath = join(process.cwd(), 'wrangler.toml')
+    // Read wrangler.json
+    const wranglerPath = join(process.cwd(), 'wrangler.json')
     let wranglerContent: string
     
     try {
       wranglerContent = readFileSync(wranglerPath, 'utf-8')
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
-      console.error('Error: wrangler.toml not found')
+      console.error('Error: wrangler.json not found')
       process.exit(1)
     }
 
-    // Parse wrangler.toml
-    const config = parse(wranglerContent) as unknown as WranglerConfig
+    // Parse wrangler.json
+    const config = JSON.parse(wranglerContent) as WranglerConfig
     
     if (!config.d1_databases?.[0]?.database_name) {
-      console.error('Error: Database name not found in wrangler.toml')
+      console.error('Error: Database name not found in wrangler.json')
       process.exit(1)
     }
 
@@ -53,7 +52,7 @@ async function migrate() {
     console.log('Generating migrations...')
     await execAsync('drizzle-kit generate')
     
-    // Apply migrations
+    // Applying migrations
     console.log(`Applying migrations to ${mode} database: ${dbName}`)
     await execAsync(`wrangler d1 migrations apply ${dbName} --${mode}`)
 
@@ -64,4 +63,4 @@ async function migrate() {
   }
 }
 
-migrate() 
+migrate()

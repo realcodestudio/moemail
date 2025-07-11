@@ -10,16 +10,27 @@ import CredentialsProvider from "next-auth/providers/credentials"
 import { hashPassword, comparePassword } from "@/lib/utils"
 import { authSchema } from "@/lib/validation"
 import { generateAvatarUrl } from "./avatar"
+import { getUserId } from "./apiKey"
 
 const ROLE_DESCRIPTIONS: Record<Role, string> = {
   [ROLES.EMPEROR]: "皇帝（网站所有者）",
+  [ROLES.DUKE]: "公爵（超级用户）",
   [ROLES.KNIGHT]: "骑士（高级用户）",
   [ROLES.CIVILIAN]: "平民（普通用户）",
 }
 
 const getDefaultRole = async (): Promise<Role> => {
   const defaultRole = await getRequestContext().env.SITE_CONFIG.get("DEFAULT_ROLE")
-  return defaultRole === ROLES.KNIGHT ? ROLES.KNIGHT : ROLES.CIVILIAN
+
+  if (
+    defaultRole === ROLES.DUKE ||
+    defaultRole === ROLES.KNIGHT ||
+    defaultRole === ROLES.CIVILIAN
+  ) {
+    return defaultRole as Role
+  }
+  
+  return ROLES.CIVILIAN
 }
 
 async function findOrCreateRole(db: Db, roleName: Role) {
@@ -51,13 +62,23 @@ export async function assignRoleToUser(db: Db, userId: string, roleId: string) {
     })
 }
 
+export async function getUserRole(userId: string) {
+  const db = createDb()
+  const userRoleRecords = await db.query.userRoles.findMany({
+    where: eq(userRoles.userId, userId),
+    with: { role: true },
+  })
+  return userRoleRecords[0].role.name
+}
+
 export async function checkPermission(permission: Permission) {
-  const session = await auth()
-  if (!session?.user?.id) return false
+  const userId = await getUserId()
+
+  if (!userId) return false
 
   const db = createDb()
   const userRoleRecords = await db.query.userRoles.findMany({
-    where: eq(userRoles.userId, session.user.id),
+    where: eq(userRoles.userId, userId),
     with: { role: true },
   })
 

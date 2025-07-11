@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, primaryKey } from "drizzle-orm/sqlite-core"
+import { integer, sqliteTable, text, primaryKey, uniqueIndex, index } from "drizzle-orm/sqlite-core"
 import type { AdapterAccountType } from "next-auth/adapters"
 import { relations } from 'drizzle-orm';
 
@@ -46,21 +46,30 @@ export const emails = sqliteTable("email", {
     .notNull()
     .$defaultFn(() => new Date()),
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
-})
+}, (table) => ({
+  expiresAtIdx: index("email_expires_at_idx").on(table.expiresAt),
+}))
 
 export const messages = sqliteTable("message", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   emailId: text("emailId")
     .notNull()
     .references(() => emails.id, { onDelete: "cascade" }),
-  fromAddress: text("from_address").notNull(),
+  fromAddress: text("from_address"),
+  toAddress: text("to_address"),
   subject: text("subject").notNull(),
   content: text("content").notNull(),
   html: text("html"),
+  type: text("type"),
   receivedAt: integer("received_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
-})
+  sentAt: integer("sent_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+}, (table) => ({
+  emailIdIdx: index("message_email_id_idx").on(table.emailId),
+}))
 
 export const webhooks = sqliteTable('webhook', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -93,6 +102,27 @@ export const userRoles = sqliteTable("user_role", {
   pk: primaryKey({ columns: [table.userId, table.roleId] }),
 }));
 
+export const apiKeys = sqliteTable('api_keys', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => users.id),
+  name: text('name').notNull(),
+  key: text('key').notNull().unique(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(() => new Date()),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+}, (table) => ({
+  nameUserIdUnique: uniqueIndex('name_user_id_unique').on(table.name, table.userId)
+}));
+
+
+
+export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
+  user: one(users, {
+    fields: [apiKeys.userId],
+    references: [users.id],
+  }),
+}));
+
 export const userRolesRelations = relations(userRoles, ({ one }) => ({
   user: one(users, {
     fields: [userRoles.userId],
@@ -106,7 +136,8 @@ export const userRolesRelations = relations(userRoles, ({ one }) => ({
 
 export const usersRelations = relations(users, ({ many }) => ({
   userRoles: many(userRoles),
-})); 
+  apiKeys: many(apiKeys),
+}));
 
 export const rolesRelations = relations(roles, ({ many }) => ({
   userRoles: many(userRoles),
